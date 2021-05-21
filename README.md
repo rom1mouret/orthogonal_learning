@@ -15,7 +15,7 @@ from orthocl import (
 )
 
 net = nn.Sequential(
-  GradProjConv2d(3, channels, (w, h), NullSpace(R=0.005)),
+  GradProjConv2d(3, channels, (h, w), NullSpace(R=0.005)),
   nn.Flatten(),
   nn.LeakyReLU(0.25),
   GradProjLinear(channels * img_dim ** 2, n_classes, NullSpace(R=0.005)),
@@ -44,7 +44,7 @@ optimizer.step()
 optimizer.zero_grad()
 ```
 
-After training, before the next task:
+After training, and before the next task:
 ```python3
 with proj_computation(net):
   for batch in dataset:
@@ -53,44 +53,45 @@ with proj_computation(net):
 
 ## Options
 
-#### GPM[2]
+##### GPM[[2](https://arxiv.org/pdf/2103.09762.pdf)]
 ```python3
-GradProjConv2d(3, channels, (w, h), GPM(R=0.005))
-GradProjLinear(in_dim, out_dim, GPM(R=0.005))
+m = 32768  # requires to avoid running out of memory
+GradProjConv2d(3, channels, (h, w), GPM(R=0.05,  max_samples=m))
+GradProjLinear(in_dim, out_dim, GPM(R=0.05,  max_samples=m))
 ```
 
-#### Zero plasticity
+##### Zero plasticity
 
 Disables weight update for the layers of your choice.
 
 ```python3
-GradProjConv2d(3, channels, (w, h), ZeroPlasticity())
+GradProjConv2d(3, channels, (h, w), ZeroPlasticity())
 GradProjLinear(in_dim, out_dim, ZeroPlasticity())
 ```
 
-### Zero stability / Full plasticity
+##### Zero stability / full plasticity
 
-Disables the algorithm. (recommended as baseline)
+Disables the projection. (recommended as baseline)
 
 ```python3
-GradProjConv2d(3, channels, (w, h), NullSpace()).disable()
+GradProjConv2d(3, channels, (h, w), NullSpace()).disable()
 GradProjLinear(in_dim, out_dim, NullSpace()).disable()
 ```
 
-### Minimum plasticity
+##### Minimum plasticity
 
 This computes the null space projection matrix of the uncentered covariance matrix
-with `1 - U x tr(U)` where `U,S,V = SVD(cov)`.
+with `1 - U x U.t()` where `U,S,V = SVD(cov)`.
 
-In this way, the null space is not approximated, but it doesn't leave much wiggle
+In this way, the null space is not approximated. On the downside, it doesn't leave much wiggle
 room to weight updates.
 
 ```python3
-GradProjConv2d(3, channels, (w, h), LowPlasticity()).disable()
-GradProjLinear(in_dim, out_dim, LowPlasticity()).disable()
+GradProjConv2d(3, channels, (h, w), LowPlasticity())
+GradProjLinear(in_dim, out_dim, LowPlasticity())
 ```
 
-### Double projection
+##### Double projection
 
 As Adam and RMSprop accumulate second-order moments from destructive gradients,
 it might be worth projecting the gradients *prior to* updating the second-order moments,
@@ -105,25 +106,38 @@ Use this option at your own peril.
 
 
 ```python3
-GradProjConv2d(3, channels, (w, h), NullSpace()).two_proj()
+GradProjConv2d(3, channels, (h, w), NullSpace()).two_proj()
 GradProjLinear(in_dim, out_dim, NullSpace()).two_proj()
 ```
 
-### Post projection
+##### Post projection
 
-I've noticed difference in precision between SVD on CPU and SVD on GPU with
+I've noticed a difference in precision between SVD on CPU and SVD on GPU with
 my version of PyTorch.
 
 If you want to be sure to avoid accumulating errors, you can ask the algorithm
-to keep around the sum of the unprojected gradients and to project the sum of
-gradients of the entire task onto the nullspace at every optimization step.
+to keep around the sum of the unprojected gradients and to project the sum over
+the entire task onto the nullspace at every optimization step.
 
 ```python3
-GradProjConv2d(3, channels, (w, h), NullSpace()).post_proj()
+GradProjConv2d(3, channels, (h, w), NullSpace()).post_proj()
 GradProjLinear(in_dim, out_dim, NullSpace()).post_proj()
 ```
 
-### Adam, RMSprop
+##### L1 distance
+
+Parameters are saved when you call `take_snapshot`.
+You can compute the differentiable L1 distance between the current parameters and the saved parameters by calling `l1dist` on each layer.
+
+```python3
+l1loss = 0
+for layer in gradproj_layers(net):
+  l1loss = layer.l1dist() + l1loss
+```
+
+note: the distance is calculated with a `sum`, not a `mean`.
+
+##### Adam, RMSprop
 
 ```python3
 for layer in gradproj_layers(net):
@@ -135,9 +149,6 @@ for layer in gradproj_layers(net):
   layer.rms_step(lr=0.01)
 ```
 
-### Bonus
-
-coming soon
 
 ### Recommended versions
 
