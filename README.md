@@ -1,13 +1,12 @@
 PyTorch implementation of
 
 [[1](https://arxiv.org/abs/2103.07113)] Shipeng Wang and Xiaorong Li and Jian Sun and Zongben Xu.
-Training Networks in Null Space of Feature Covariance for Continual Learning, CVPR 2021
-2021
+Training Networks in Null Space of Feature Covariance for Continual Learning, CVPR 2021 (oral paper)
 
 [[2](https://arxiv.org/pdf/2103.09762.pdf)] Gobinda Saha, Isha Garg & Kaushik Roy.
 Gradient Projection Memory for Continual Learning, ICLR 2021
 
-Example of network equipped for continual learning:
+Example of network equipped for continual learning with orthocl:
 
 ```python3
 from orthocl import (
@@ -22,7 +21,7 @@ net = nn.Sequential(
 )
 ```
 
-Before training a new task:
+Before training the network on a new task, execute:
 ```python3
 for layer in gradproj_layers(net):
   layer.take_snapshot()
@@ -30,7 +29,7 @@ for layer in gradproj_layers(net):
 
 After the first task, call `net.eval()` to freeze batchnorms and dropouts.
 
-While training:
+In the training loop, you don't need an optimizer. Simply update the weights with `sgd_step`:
 ```python3
 loss.backward()
 for layer in gradproj_layers(net):
@@ -44,12 +43,30 @@ optimizer.step()
 optimizer.zero_grad()
 ```
 
-After training, and before the next task:
+After training, and before the next task, execute:
 ```python3
 with proj_computation(net):
   for batch in dataset:
     net(batch)
 ```
+
+## Example
+
+You can try a number of different scenarios with [rotated_mnist.py](rotated_mnist.py).
+
+#### Results with `NullSpace(R=0.01)`
+
+| angle | accuracy with null space (%) | baseline accuracy (%) |
+|-------|-----|----- |
+| 0     | 86  | 56   |
+| 90    | 86  | 59   |
+| -45   | 90  | 38   |
+| 45    | 88  | 97   |
+
+The accuracy is measured after training the 4 tasks.
+As you can see, the baseline algorithm forgets old tasks as it learns new tasks.
+
+(I haven't tuned any hyper-parameter so I do not recommend that you use those numbers to compare orthocl with other CL algorithms)
 
 ## Options
 
@@ -98,7 +115,7 @@ it might be worth projecting the gradients *prior to* updating the second-order 
 and projecting again the gradients after adjusting them with the moments.
 
 In theory, if the nullspace is well approximated, the resulting projection matrix
-will be idempotent, thus gradients can be projected multiple times.
+should be idempotent, thus gradients can be projected multiple times.
 However, in practice, as the approximation is not perfect, this could make
 things worse.
 
@@ -115,9 +132,9 @@ GradProjLinear(in_dim, out_dim, NullSpace()).two_proj()
 I've noticed a difference in precision between SVD on CPU and SVD on GPU with
 my version of PyTorch.
 
-If you want to be sure to avoid accumulating errors, you can ask the algorithm
-to keep around the sum of the unprojected gradients and to project the sum over
-the entire task onto the nullspace at every optimization step.
+If you want to be sure to avoid accumulating errors, you can have the algorithm
+keep around the sum of the unprojected gradients and project the gradient sum
+at every optimization step.
 
 ```python3
 GradProjConv2d(3, channels, (h, w), NullSpace()).post_proj()
@@ -152,11 +169,13 @@ for layer in gradproj_layers(net):
 
 ### Recommended versions
 
-| tool |  version|
-|--------|--------|
-| python | 3.8.5  |
-| torch  | 1.8.0  |
-| numpy  | 1.20.1 |
+| tool   | version| required by |
+|--------|--------| ------------|
+| python | 3.8.5  | orthocl     |
+| torch  | 1.8.0  | orthocl     |
+| numpy  | 1.20.1 | orthocl     |
+| tqdm   | 4.46.1 | rotated_mnist.py |
+| torchvision | 0.9.0 | rotated_mnist.py |
 
 ### Installation
 
